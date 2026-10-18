@@ -11,6 +11,8 @@
 #   CT_TEMPLATE_STORAGE=local   stockage des templates           CT_PASSWORD=...  mot de passe root du CT (défaut : aléatoire)
 #   BIOTRACK_PORT / BIOTRACK_TZ / BIOTRACK_REPO : transmis à install.sh
 set -euo pipefail
+trap 'echo "Erreur à la ligne $LINENO (commande : $BASH_COMMAND)" >&2' ERR
+echo "BioTrack — création du conteneur LXC"
 
 command -v pct >/dev/null || { echo "Ce script s'exécute sur un hôte Proxmox VE (commande pct absente)."; exit 1; }
 [ "$(id -u)" = 0 ] || { echo "À lancer en root."; exit 1; }
@@ -25,7 +27,9 @@ CT_CORES="${CT_CORES:-1}"
 CT_BRIDGE="${CT_BRIDGE:-vmbr0}"
 CT_IP="${CT_IP:-dhcp}"
 CT_GW="${CT_GW:-}"
-CT_PASSWORD="${CT_PASSWORD:-$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)}"
+if [ -z "${CT_PASSWORD:-}" ]; then
+  CT_PASSWORD=$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-16)
+fi
 PASS="${BIOTRACK_PASSWORD:-}"
 RAW="https://raw.githubusercontent.com/${BIOTRACK_GH:-TuKo1982/biotrack}/main"
 
