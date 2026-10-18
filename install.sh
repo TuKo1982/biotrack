@@ -15,7 +15,7 @@ APP_DIR=/opt/biotrack
 DATA_DIR=/var/lib/biotrack
 PORT="${BIOTRACK_PORT:-8080}"
 TZ_="${BIOTRACK_TZ:-Europe/Zurich}"
-REPO="${BIOTRACK_REPO:-https://github.com/TuKo1982/biotrack.git}"
+REPO="${BIOTRACK_REPO:-}"; [ -n "$REPO" ] || REPO="https://github.com/TuKo1982/biotrack.git"
 PASS="${BIOTRACK_PASSWORD:-}"
 SRC="${1:-}"
 
