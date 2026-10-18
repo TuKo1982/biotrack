@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="fr">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>BioTrack — import</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<header><h1>BioTrack</h1><nav><a href="/">← Tableau de bord</a></nav></header>
+<main>
+<h2>Résultat de l'import</h2>
+<ul class="findings">
+{% for m in msgs %}<li class="{{ 'good' if m.ok else 'warn' }}"><strong>{{ m.file }}</strong> — {{ m.msg }}</li>{% endfor %}
+</ul>
+<p><a class="btn" href="/">Voir le tableau de bord</a></p>
+</main>
+</body>
+</html>

@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BioTrack</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>BioTrack</h1>
+  <nav>
+    <a href="#constats">Constats</a><a href="#labo">Analyses</a><a href="#prelevements">Prélèvements</a><a href="#oura">Oura</a><a href="#sommeil">Sommeil</a><a href="#correlations">Corrélations</a><a href="#donnees">Données</a>
+  </nav>
+  <span class="muted" style="margin-left:auto">{{ p.reports|length }} bilans · {{ p.n_days }} jours Oura{% if p.oura_range %} ({{ p.oura_range[0] }} → {{ p.oura_range[1] }}){% endif %}</span>
+</header>
+<main>
+
+<section class="card noprint" id="upload">
+  <form class="drop" method="post" action="/upload" enctype="multipart/form-data">
+    <strong>Ajouter des données</strong><br>
+    <span class="muted">Export Oura (<code>data.zip</code>, menu Compte → Exporter mes données) et/ou rapports PDF du laboratoire (format Polyanalytic « Rapport Complet »). Plusieurs fichiers à la fois acceptés ; les jours et bilans déjà présents sont mis à jour, jamais dupliqués.</span><br>
+    <input type="file" name="files" multiple accept=".zip,.pdf,application/zip,application/pdf" required>
+    <button type="submit">Importer</button>
+  </form>
+</section>
+
+{% if not p.reports and not p.n_days %}
+<p class="card">Aucune donnée pour l'instant. Importe un export Oura et/ou des rapports PDF pour commencer.</p>
+{% else %}
+
+<h2 id="constats">Constats automatiques</h2>
+<p class="muted">Règles explicites, sans interprétation médicale : elles mettent en évidence ce qui mérite une discussion avec le médecin traitant.</p>
+<ul class="findings">
+{% for f in p.findings %}<li class="{{ f.level }}">{{ f.text }}</li>{% endfor %}
+{% if not p.findings %}<li class="good">Rien à signaler avec les règles actuelles.</li>{% endif %}
+</ul>
+
+{% if p.reports %}
+<h2 id="labo">Évolution des analyses sanguines</h2>
+<p class="muted">Zone verte = norme du laboratoire · point blanc cerclé = hors norme · point pointillé = valeur d'antériorité reprise d'un rapport ultérieur (PDF non importé).</p>
+<div id="lab-charts"></div>
+
+<h2 id="prelevements">Contexte Oura de chaque prélèvement</h2>
+<p class="muted">Fenêtres de 14 nuits (hors nuit du prélèvement) et 3 nuits (nuit du prélèvement incluse). Nuit « lourde » = FC repos ≥ 68 et VFC ≤ 24 ms.{% if p.n_days %} Référence sur toute la période : FC {{ p.baseline.rhr|round(1) }} · VFC {{ p.baseline.hrv|round(1) }} · sommeil {{ p.baseline.sleep_h|round(2) }} h.{% endif %}</p>
+<table>
+<tr><th>Prélèvement</th><th class="n">FC 14 n. / 3 n.</th><th class="n">VFC 14 n. / 3 n.</th><th class="n">Sommeil 14 n.</th><th class="n">Nuits lourdes 21 j</th><th>Valeurs notables</th><th>Contexte</th></tr>
+{% for r in p.reports|reverse %}{% set c = p.contexts[r.request_no] %}
+<tr>
+  <td>{{ r.drawn_at[8:10] }}.{{ r.drawn_at[5:7] }}.{{ r.drawn_at[:4] }} {{ r.drawn_at[11:16] }}<br><span class="muted">{{ r.ordered_by|replace('Monsieur le Docteur ','Dr ')|replace('Madame la Doctoresse ','Dre ') }}</span></td>
+  {% if c %}
+  <td class="n">{{ c.rhr14|round(1) if c.rhr14 else '–' }} / {{ c.rhr3|round(1) if c.rhr3 else '–' }}</td>
+  <td class="n">{{ c.hrv14|round(1) if c.hrv14 else '–' }} / {{ c.hrv3|round(1) if c.hrv3 else '–' }}</td>
+  <td class="n">{{ c.sleep14 or '–' }}</td>
+  <td class="n">{{ c.heavy21 }}</td>
+  {% else %}<td colspan="4" class="muted">période non couverte par la bague</td>{% endif %}
+  <td>{{ p.notable.get(r.request_no, [])|join(', ') }}</td>
+  <td>{% if c %}{% for d,t in c.tags %}<span class="pill {% if t in ('sick','fever','flu','sore_throat','cold','headache') %}ill{% elif t in ('alcohol','liquor','party','wine','beer') %}alc{% endif %}">{{ t }} {{ d[8:] }}.{{ d[5:7] }}</span>{% endfor %}
+    {% if c.notes %}<ul style="margin:4px 0 0 14px;padding:0">{% for n in c.notes %}<li>{{ n }}</li>{% endfor %}</ul>{% else %}<span class="ok">Conditions neutres</span>{% endif %}{% endif %}
+    <form method="post" action="/report/{{ r.request_no|urlencode }}/delete" class="noprint" style="margin-top:4px" onsubmit="return confirm('Supprimer ce bilan ?')"><button class="small">supprimer</button></form></td>
+</tr>
+{% endfor %}
+</table>
+{% endif %}
+
+{% if p.n_days %}
+<h2 id="oura">Données Oura</h2>
+{% if p.trend %}<div class="kpi">
+  <div><span class="muted">FC repos, 30 derniers jours</span><b>{{ p.trend.rhr_last }} <span class="muted">vs {{ p.trend.rhr_prev }} avant</span></b></div>
+  <div><span class="muted">VFC, 30 derniers jours</span><b>{{ p.trend.hrv_last }} <span class="muted">vs {{ p.trend.hrv_prev }} avant</span></b></div>
+  {% if p.sleep %}<div><span class="muted">Sommeil moyen</span><b>{{ p.sleep.sleep }} h</b></div><div><span class="muted">Efficacité</span><b>{{ p.sleep.eff|round(1) }} %</b></div>{% endif %}
+</div>{% endif %}
+<div id="oura-charts"></div>
+
+<details><summary>Moyennes mensuelles</summary>
+<table><tr><th>Mois</th><th class="n">Nuits</th><th class="n">FC repos</th><th class="n">VFC</th><th class="n">Sommeil</th><th class="n">Readiness</th><th class="n">Pas/jour</th></tr>
+{% for m, v in p.monthly.items() %}<tr><td>{{ m }}</td><td class="n">{{ v.n }}</td><td class="n">{{ v.rhr|round(1) }}</td><td class="n">{{ v.hrv|round(1) }}</td><td class="n">{{ v.sleep }}</td><td class="n">{{ v.readiness }}</td><td class="n">{{ v.steps|round|int if v.steps else '' }}</td></tr>{% endfor %}
+</table></details>
+
+{% if p.sleep %}
+<h2 id="sommeil">Sommeil</h2>
+<div class="grid">
+  <div class="card"><h3>Structure</h3>
+    <table>
+    <tr><td>Temps au lit</td><td class="n">{{ p.sleep.tib }} h</td></tr>
+    <tr><td>Sommeil</td><td class="n">{{ p.sleep.sleep }} h ({{ p.sleep.pct_over7 }} % des nuits ≥ 7 h)</td></tr>
+    <tr><td>Efficacité</td><td class="n">{{ p.sleep.eff|round(1) }} %</td></tr>
+    <tr><td>Endormissement (médiane)</td><td class="n">{{ p.sleep.latency_median }} min · > 20 min sur {{ p.sleep.n_latency20 }} nuits</td></tr>
+    <tr><td>Éveil nocturne</td><td class="n">{{ p.sleep.awake|round(1) }} min · > 60 min sur {{ p.sleep.n_awake60 }} nuits</td></tr>
+    <tr><td>Profond / paradoxal</td><td class="n">{{ p.sleep.deep }} h / {{ p.sleep.rem }} h</td></tr>
+    <tr><td>Perturbations respiratoires ≥ 15 / ≥ 25</td><td class="n">{{ p.sleep.n_bdi15 }} / {{ p.sleep.n_bdi25 }} nuits</td></tr>
+    </table></div>
+  <div class="card"><h3>Régularité</h3>
+    <table>
+    <tr><td>Coucher moyen</td><td class="n">{{ '%02d:%02d'|format(((p.sleep.bed_mean + 24) % 24)|int, (((p.sleep.bed_mean + 24) % 24) * 60 % 60)|int) }} (± {{ p.sleep.bed_sd }} h)</td></tr>
+    <tr><td>Lever moyen</td><td class="n">{{ '%02d:%02d'|format(p.sleep.wake_mean|int, (p.sleep.wake_mean * 60 % 60)|int) }} (± {{ p.sleep.wake_sd }} h)</td></tr>
+    <tr><td>Nuits décalées > 1 h vs la veille</td><td class="n">{{ p.sleep.bed_shift_pct }} %</td></tr>
+    <tr><td>Coucher avant 23:00 ({{ p.sleep.early.n }} n.)</td><td class="n">{{ p.sleep.early.sleep }} h · score {{ p.sleep.early.score|round(1) }} · FC {{ p.sleep.early.rhr|round(1) }} · VFC {{ p.sleep.early.hrv|round(1) }}</td></tr>
+    <tr><td>Coucher après 00:30 ({{ p.sleep.late.n }} n.)</td><td class="n">{{ p.sleep.late.sleep }} h · score {{ p.sleep.late.score|round(1) }} · FC {{ p.sleep.late.rhr|round(1) }} · VFC {{ p.sleep.late.hrv|round(1) }}</td></tr>
+    <tr><td>Nuits lourdes</td><td class="n">{{ p.sleep.heavy_total }} dont {{ p.sleep.heavy_thu_sun }} du jeudi au dimanche</td></tr>
+    </table></div>
+  <div class="card"><h3>Par jour de semaine <span class="muted">(nuit se terminant ce matin-là)</span></h3>
+    <table><tr><th></th><th class="n">FC repos</th><th class="n">VFC</th><th class="n">Sommeil</th><th class="n">Coucher</th></tr>
+    {% for d, v in p.sleep.weekday.items() %}<tr><td>{{ d }}</td><td class="n">{{ v.rhr|round(1) }}</td><td class="n">{{ v.hrv|round(1) }}</td><td class="n">{{ v.sleep }}</td><td class="n">{% if v.bed is not none %}{{ '%02d:%02d'|format(((v.bed + 24) % 24)|int, (((v.bed + 24) % 24) * 60 % 60)|int) }}{% endif %}</td></tr>{% endfor %}
+    </table></div>
+</div>
+{% endif %}
+{% endif %}
+
+<h2 id="correlations">Corrélations exploratoires</h2>
+{% if p.corr %}
+<p class="muted">Rho de Spearman entre chaque paramètre sanguin et l'état Oura avant le prélèvement. Avec moins de 10 bilans, un rho élevé est une piste à vérifier, pas une preuve ; les lignes en gras (|rho| ≥ 0.7) sont celles qui méritent d'être regardées sur le graphique.</p>
+<table><tr><th>Paramètre</th><th>Métrique Oura</th><th class="n">rho</th><th class="n">n</th></tr>
+{% for r in p.corr[:25] %}<tr {% if r.strong %}style="font-weight:600"{% endif %}><td>{{ r.label }}</td><td>{{ r.metric }}</td><td class="n">{{ r.rho }}</td><td class="n">{{ r.n }}</td></tr>{% endfor %}
+</table>
+{% else %}<p class="muted">Il faut au moins 5 bilans couverts par la bague pour calculer des corrélations.</p>{% endif %}
+
+<h2 id="donnees">Données importées</h2>
+<details open><summary>{{ p.uploads|length }} imports récents</summary>
+<table><tr><th>Date</th><th>Fichier</th><th>Type</th><th>Résumé</th></tr>
+{% for u in p.uploads %}<tr><td>{{ u.imported_at[:16]|replace('T',' ') }}</td><td>{{ u.filename }}</td><td>{{ u.kind }}</td><td>{{ u.summary }}</td></tr>{% endfor %}
+</table></details>
+{% if p.reports %}
+<details><summary>Tous les paramètres du dernier bilan</summary>
+{% set last = p.reports[-1] %}
+<table><tr><th>Paramètre</th><th class="n">Valeur</th><th>Unité</th><th>Norme</th></tr>
+{% for k, s in p.series.items() %}{% set pt = s.points[-1] %}{% if pt.request_no == last.request_no %}
+<tr><td>{{ s.label }}</td><td class="n {% if pt.flag %}hi{% endif %}">{{ pt.value }}</td><td>{{ s.unit }}</td><td>{{ pt.lo if pt.lo is not none else '' }}{% if pt.lo is not none and pt.hi is not none %}–{% elif pt.hi is not none %}&lt; {% endif %}{{ pt.hi if pt.hi is not none else '' }}</td></tr>
+{% endif %}{% endfor %}
+</table></details>
+{% endif %}
+{% endif %}
+
+<p class="muted" style="margin-top:40px">BioTrack · données stockées localement dans SQLite · aucun envoi externe · ne remplace pas une interprétation médicale.</p>
+</main>
+<script>window.BT = {{ chart_json|safe }};</script>
+<script src="/static/app.js"></script>
+</body>
+</html>
