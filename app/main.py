@@ -38,6 +38,24 @@ def auth(creds: HTTPBasicCredentials = Depends(security)):
 def _startup():
     db.init()
     os.makedirs(UPLOAD_DIR, exist_ok=True)
+    repair_missing_dates()
+
+
+def repair_missing_dates():
+    """Rapports importés sans date de prélèvement (invisibles dans les graphiques) :
+    relit le PDF conservé, sinon déduit la date du nom de fichier."""
+    with db.connect() as conn:
+        for r in conn.execute("SELECT request_no, filename FROM lab_reports WHERE drawn_at IS NULL OR drawn_at = ''").fetchall():
+            drawn = ""
+            pdf = os.path.join(UPLOAD_DIR, f"{r['request_no'].replace(' ', '')}.pdf")
+            if os.path.exists(pdf):
+                try:
+                    drawn = ingest_lab.parse_pdf(pdf).drawn_at
+                except Exception:  # noqa: BLE001
+                    drawn = ""
+            drawn = drawn or ingest_lab.drawn_from_filename(r["filename"])
+            if drawn:
+                conn.execute("UPDATE lab_reports SET drawn_at=? WHERE request_no=?", (drawn, r["request_no"]))
 
 
 # ------------------------------------------------------------ données ----
@@ -119,9 +137,15 @@ async def upload(request: Request, files: list[UploadFile] = File(...), _=Depend
                     rep = ingest_lab.parse_pdf(tmp)
                     if not rep.results:
                         raise ValueError("aucun résultat reconnu dans ce PDF (format Polyanalytic « Rapport Complet » attendu)")
+                    note = ""
+                    if not rep.drawn_at:
+                        rep.drawn_at = ingest_lab.drawn_from_filename(name)
+                        note = " (date déduite du nom de fichier)"
+                    if not rep.drawn_at:
+                        raise ValueError("date de prélèvement introuvable dans ce PDF : rapport non importé")
                     s = store_lab(conn, rep, name)
                     shutil.copy(tmp, os.path.join(UPLOAD_DIR, f"{s['request_no'].replace(' ', '')}.pdf"))
-                    summary = f"Bilan du {s['drawn_at'].replace('T', ' ')} : {s['n']} résultats" + (" (rapport déjà présent, remplacé)" if s["replaced"] else "")
+                    summary = f"Bilan du {s['drawn_at'].replace('T', ' ')} : {s['n']} résultats" + note + (" (rapport déjà présent, remplacé)" if s["replaced"] else "")
                     kind = "labo"
                 else:
                     raise ValueError("format non pris en charge (attendu : .zip Oura ou .pdf de laboratoire)")

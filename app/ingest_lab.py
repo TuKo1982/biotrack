@@ -108,7 +108,7 @@ _LINE = re.compile(
     r"(?P<value>" + _NUM + r")(?:\s+(?P<qual>Positif\+*|Négatif|Positive|Négative|Pos\.|Nég\.))?\s{2,}"
     r"(?P<unit>[^\s]+)\s{2,}(?P<rest>.*?)\s*$"
 )
-_PREV = re.compile(r"^(?P<range>.*?)(?:\s{2,}(?P<pdate>\d\d/\d\d/\d{4}))?(?:\s{2,}|\s+)(?P<pval>" + _NUM + r")\s*$")
+_PREV = re.compile(r"^(?P<range>.*?)(?:\s{2,}(?P<pdate>\d\d[./]\d\d[./]\d{4}))?(?:\s{2,}|\s+)(?P<pval>" + _NUM + r")\s*$")
 _SECTION = re.compile(r"^ (?P<name>[A-Za-zÀ-ÿ][^\d]*?)\s*$")
 _RANGE_LOHI = re.compile(r"^(\d+(?:[.,]\d+)?)\s*-\s*(\d+(?:[.,]\d+)?)$")
 _RANGE_LT = re.compile(r"^<\s*(\d+(?:[.,]\d+)?)")
@@ -163,6 +163,33 @@ def _canon(name: str, section: str, unit: str) -> Optional[str]:
     return None
 
 
+# Date de prélèvement : formulations tolérées
+#   'Prélèvement du 10/09/2026 08:20', 'Prélevé le 02.11.2026 à 08h35', 'Date de prélèvement : 02/11/2026'...
+_DRAWN = re.compile(
+    r"pr[ée]l[èe]v(?:ement|[ée])(?:[^\S\n]+(?:du|le))?[^\S\n]*:?[^\S\n]*"
+    r"(\d{1,2})[./-](\d{1,2})[./-](\d{4})"
+    r"(?:[^\S\n,]*,?[^\S\n]*(?:à[^\S\n]*)?(\d{1,2})[:hH](\d\d))?",
+    re.I)
+# Nom de fichier des exports MSS : MSS_<n° demande>_STD_<AAAAMMJJhhmmss prélèvement>_<AAAAMMJJhhmmss édition>
+_FNAME = re.compile(r"MSS_(\d+)_\w*?_(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)\d\d_")
+
+
+def parse_drawn(text: str) -> str:
+    m = _DRAWN.search(text)
+    if not m:
+        return ""
+    d, mo, y, h, mi = m.groups()
+    return f"{y}-{int(mo):02d}-{int(d):02d}T{int(h or 0):02d}:{mi or '00'}"
+
+
+def drawn_from_filename(filename: str) -> str:
+    m = _FNAME.search(filename or "")
+    if not m:
+        return ""
+    _, y, mo, d, h, mi = m.groups()
+    return f"{y}-{mo}-{d}T{h}:{mi}"
+
+
 def parse_text(text: str) -> LabReport:
     req = ""
     drawn = ""
@@ -170,10 +197,7 @@ def parse_text(text: str) -> LabReport:
     m = re.search(r"Demande n°\s+([\d ]+?)\s{2,}", text)
     if m:
         req = m.group(1).strip()
-    m = re.search(r"Prélèvement du\s+(\d\d)/(\d\d)/(\d{4})\s+(\d\d):(\d\d)", text)
-    if m:
-        d, mo, y, h, mi = m.groups()
-        drawn = f"{y}-{mo}-{d}T{h}:{mi}"
+    drawn = parse_drawn(text)
     m = re.search(r"Demandé par\s+(.+?)\s{2,}|Demandé par\s+(.+?)$", text, re.M)
     if m:
         ordered = (m.group(1) or m.group(2) or "").strip()
@@ -205,7 +229,7 @@ def parse_text(text: str) -> LabReport:
         if mp and (mp.group("pdate") or re.search(r"\s{2,}" + _NUM + r"\s*$", rest)):
             rng = mp.group("range").strip()
             if mp.group("pdate"):
-                d, mo, y = mp.group("pdate").split("/")
+                d, mo, y = re.split(r"[./]", mp.group("pdate"))
                 pdate = f"{y}-{mo}-{d}"
                 carry_prev_date = pdate
             else:
